@@ -5,7 +5,7 @@
 
 
 MODULE_DESCRIPTION(  "Enforces RLIMIT_RSS"            );
-MODULE_VERSION(      "0.0-devel-20190104"             );
+MODULE_VERSION(      "0.0-devel-20190105"             );
 MODULE_AUTHOR(       "Parke <parke.nexus@gmail.com>"  );
 MODULE_LICENSE(      "GPL"    /* GPLv2 */             );
 
@@ -35,9 +35,9 @@ struct  process_info  {    /*  ---------------------  struct  process_info  */
 
 static unsigned long  rss_calc    /*  --------------------------  rss_calc  */
 ( const struct mm_struct * const  mm )  {
-  const atomic_long_t * const  c  =  mm -> rss_stat .count;
-  const unsigned long  rss_pages  =
-    c [ MM_FILEPAGES ] .counter + c [ MM_ANONPAGES ] .counter;
+  const atomic_long_t * const  c          =  mm -> rss_stat .count;
+  const unsigned long          rss_pages  =
+    c [ MM_FILEPAGES ] .counter  +  c [ MM_ANONPAGES ] .counter;
   return  rss_pages << PAGE_SHIFT;  }    /*  convert pages to bytes  */
 
 
@@ -83,32 +83,18 @@ static void  scan_process  ( struct task_struct * const pr )  {    /*  ---  */
 /*  census  ------------------------------------------------------  census  */
 
 
-static unsigned long  hmax, hmin;    /*  max and min hard limits  */
-static unsigned long  smax, smin;    /*  max and min soft limits  */
-static unsigned int   pop, pop_hmax, pop_hmin;    /*  process counts  */
-static unsigned int   pop_smax, pop_smin;         /*  process counts  */
+static unsigned int  pop, pop_hinf, pop_sinf;    /*  process counts  */
 
 
 static void  census_reset  ( void )  {    /*  --------------  census_reset  */
-  hmax  =  hmin  =  smax  =  smin  =  RLIM_INFINITY;
-  pop  =  pop_hmax  =  pop_hmin  =  pop_smax  =  pop_smin  =  0;  }
+  pop  =  pop_hinf  =  pop_sinf  =  0;  }
 
 
 static void  census_count  ( struct task_struct * const pr )  {    /*  ---  */
-
   struct process_info  v;  info_lookup ( pr, & v );
-
   pop ++;
-
-  if  ( v.hard > hmax )  {  hmax  =  v.hard;    pop_hmax  =  0;  }
-  if  ( v.hard < hmin )  {  hmin  =  v.hard;    pop_hmin  =  0;  }
-  if  ( v.soft > smax )  {  smax  =  v.soft;    pop_smax  =  0;  }
-  if  ( v.soft < smin )  {  smin  =  v.soft;    pop_smin  =  0;  }
-
-  if       ( v.hard == hmax )  {  pop_hmax ++;  }
-  else if  ( v.hard == hmin )  {  pop_hmin ++;  }
-  if       ( v.soft == smax )  {  pop_smax ++;  }
-  else if  ( v.soft == smin )  {  pop_smin ++;  }  }
+  if  ( v.hard == RLIM_INFINITY )  {  pop_hinf ++;  }
+  if  ( v.soft == RLIM_INFINITY )  {  pop_sinf ++;  }  }
 
 
 static void  census_find  ( struct task_struct * const pr )  {    /*  ----  */
@@ -122,7 +108,7 @@ static void  census_find  ( struct task_struct * const pr )  {    /*  ----  */
 static void  census_log  ( void )  {    /*  ------------------  census_log  */
   census_reset();  apply_to_all ( census_count );
   printk ( KERN_INFO "rlimit_rss  tasks %u  hard %u  soft %u\n",
-	   pop,  pop - pop_hmax,  pop - pop_smax );
+	   pop,  pop - pop_hinf,  pop - pop_sinf );
   apply_to_all ( census_find );  }
 
 
@@ -133,8 +119,9 @@ static void  census_log  ( void )  {    /*  ------------------  census_log  */
 
 /*  main  ----------------------------------------------------------  main  */
 
-static int                        active      =  1;
-static struct workqueue_struct *  workqueue   =  NULL;
+
+static int                        active     =  1;
+static struct workqueue_struct *  workqueue  =  NULL;
 
 static void  pulse  ( struct work_struct * p );
 static DECLARE_DELAYED_WORK( Task, pulse );
